@@ -13,7 +13,11 @@ API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
 def api(method, data=None):
     try:
-        r = requests.post(f"{API}/{method}", json=data or {}, timeout=20)
+        r = requests.post(
+            f"{API}/{method}",
+            json=data or {},
+            timeout=20
+        )
         return r.json()
     except Exception:
         return {}
@@ -24,15 +28,17 @@ def send(chat_id, text, **kwargs):
     return api("sendMessage", data)
 
 def current_time():
-    return datetime.now(ZoneInfo("Asia/Dhaka")).strftime("%d-%m-%Y  %I:%M:%S %p")
+    return datetime.now(
+        ZoneInfo("Asia/Dhaka")
+    ).strftime("%d-%m-%Y %I:%M:%S %p")
 
 def greeting():
     hour = datetime.now(ZoneInfo("Asia/Dhaka")).hour
     if 5 <= hour < 12:
         return "শুভ সকাল"
-    if 12 <= hour < 17:
+    elif 12 <= hour < 17:
         return "শুভ দুপুর"
-    if 17 <= hour < 20:
+    elif 17 <= hour < 20:
         return "শুভ সন্ধ্যা"
     return "শুভ রাত্রি"
 
@@ -41,19 +47,40 @@ def is_member(user_id):
         "chat_id": CHANNEL,
         "user_id": user_id
     })
-    status = result.get("result", {}).get("status")
-    return status in ("member", "administrator", "creator")
+
+    member = result.get("result", {})
+    status = member.get("status")
+
+    if status in ("member", "administrator", "creator"):
+        return True
+
+    if status == "restricted" and member.get("is_member"):
+        return True
+
+    return False
 
 def join_page(chat_id):
     keyboard = {
         "inline_keyboard": [
-            [{"text": "📢 Join Channel", "url": CHANNEL_LINK}],
-            [{"text": "✅ Verify", "callback_data": "verify"}]
+            [{
+                "text": "📢 Join Channel",
+                "url": CHANNEL_LINK
+            }],
+            [{
+                "text": "✅ Verify",
+                "callback_data": "verify"
+            }]
         ]
     }
+
     send(
         chat_id,
-        "🔐 বট ব্যবহার করতে আমাদের Channel-এ Join করো।\n\nJoin করার পর Verify চাপ দাও।",
+        "🔐 TEAM SHADOW STRIKER\n\n"
+        "বট ব্যবহার করতে প্রথমে আমাদের Channel-এ Join করো।\n\n"
+        "1️⃣ Join Channel চাপ দাও\n"
+        "2️⃣ Channel-এ Join করো\n"
+        "3️⃣ Verify চাপ দাও\n\n"
+        "⚡ তারপর বটের সব ফিচার ব্যবহার করতে পারবে।",
         reply_markup=keyboard
     )
 
@@ -71,60 +98,68 @@ def main_menu(chat_id):
                     "request_photo": True
                 }
             }],
-            [{"text": "📩 Forward Message"}, {"text": "ℹ️ My Information"}],
+            [
+                {"text": "📩 Forward Message"},
+                {"text": "ℹ️ My Information"}
+            ],
             [{"text": "📖 How To Use"}]
         ],
         "resize_keyboard": True
     }
+
     send(
         chat_id,
-        "⚡ Team Shadow Striker Main Menu\n\nনিচের অপশন থেকে বেছে নাও।",
+        "⚡ TEAM SHADOW STRIKER\n\n"
+        "Welcome to Main Menu!\n\n"
+        "নিচের অপশন থেকে বেছে নাও।",
         reply_markup=keyboard
     )
 
 def my_info(chat_id, user):
-    name = user.get("first_name", "Unknown")
     username = user.get("username")
-    text = (
-        f"👤 Name: {name}\n"
-        f"📛 Username: @{username if username else 'Not set'}\n"
-        f"🆔 Chat ID: {user.get('id')}\n"
+
+    send(
+        chat_id,
+        "👤 MY INFORMATION\n\n"
+        f"Name: {user.get('first_name', 'Unknown')}\n"
+        f"Username: @{username if username else 'Not set'}\n"
+        f"Chat ID: {user.get('id')}\n"
         f"🕒 Current Time: {current_time()}\n\n"
         "⚡ Bot From Team Shadow Striker"
     )
-    send(chat_id, text)
 
 def selected_user(chat_id, shared):
     users = shared.get("users", [])
-    if not users:
-        send(chat_id, "কোনো User পাওয়া যায়নি।")
-        return
 
     for user in users:
         uid = user.get("user_id", "Unavailable")
+
         name = " ".join(filter(None, [
             user.get("first_name", ""),
             user.get("last_name", "")
         ])) or "Unavailable"
+
         username = user.get("username")
         photos = user.get("photo", [])
 
         text = (
-            "🔎 Selected User Information\n\n"
+            "🔎 SELECTED USER INFORMATION\n\n"
             f"👤 Name: {name}\n"
             f"📛 Username: @{username if username else 'Not set'}\n"
             f"🆔 Chat ID: {uid}\n"
-            f"🖼️ Shared Profile Photo: {'Available' if photos else 'Not shared'}\n"
+            f"🖼️ Profile Photo: {'Available' if photos else 'Not shared'}\n"
             f"🕒 Current Time: {current_time()}\n\n"
-            "ℹ️ তথ্যগুলো Telegram User Picker থেকে পাওয়া।\n"
             "⚡ Bot From Team Shadow Striker"
         )
 
         if photos:
-            largest = max(photos, key=lambda p: p.get("file_size", 0))
+            largest = max(
+                photos,
+                key=lambda p: p.get("file_size", 0)
+            )
             api("sendPhoto", {
                 "chat_id": chat_id,
-                "photo": largest.get("file_id"),
+                "photo": largest["file_id"],
                 "caption": text
             })
         else:
@@ -132,35 +167,34 @@ def selected_user(chat_id, shared):
 
 def forwarded_user(chat_id, message):
     origin = message.get("forward_origin", {})
+
     if origin.get("type") != "user":
         send(
             chat_id,
-            "এই Forward করা মেসেজে Telegram প্রেরকের পরিচয় প্রকাশ করেনি। তাই User ID দেখানো যাচ্ছে না।"
+            "ℹ️ Telegram এই Forward-এর প্রেরকের পরিচয় প্রকাশ করেনি।"
         )
         return
 
     user = origin.get("sender_user", {})
+    username = user.get("username")
+
     name = " ".join(filter(None, [
         user.get("first_name", ""),
         user.get("last_name", "")
     ])) or "Unavailable"
-    username = user.get("username")
 
-    text = (
-        "🔎 Forward Lookup Result\n\n"
+    send(
+        chat_id,
+        "🔎 FORWARD LOOKUP RESULT\n\n"
         f"👤 Name: {name}\n"
         f"📛 Username: @{username if username else 'Not set'}\n"
         f"🆔 Chat ID: {user.get('id', 'Unavailable')}\n"
-        "🖼️ Profile Photo: Not provided in this forward\n"
         f"🕒 Current Time: {current_time()}\n\n"
-        "ℹ️ শুধু Forward-এর সঙ্গে Telegram যে তথ্য দিয়েছে সেটিই দেখানো হয়েছে.\n"
         "⚡ Bot From Team Shadow Striker"
     )
-    send(chat_id, text)
 
 def handle_message(message):
-    chat = message.get("chat", {})
-    chat_id = chat.get("id")
+    chat_id = message.get("chat", {}).get("id")
     user = message.get("from", {})
 
     if not chat_id:
@@ -178,63 +212,63 @@ def handle_message(message):
                 f"📛 Username: @{user.get('username', 'Not set')}\n"
                 f"🆔 Chat ID: {user.get('id')}\n"
                 f"🕒 Current Time: {current_time()}\n\n"
-                "নিচের Menu ব্যবহার করো।"
+                "নিচের Menu থেকে বেছে নাও।"
             )
             main_menu(chat_id)
         else:
             join_page(chat_id)
         return
 
+    # সব ফিচার ব্যবহারের আগে Channel Membership যাচাই
+    if not is_member(user.get("id")):
+        join_page(chat_id)
+        return
+
     if text == "ℹ️ My Information":
         my_info(chat_id, user)
-        return
 
-    if text == "📩 Forward Message":
+    elif text == "📩 Forward Message":
         send(
             chat_id,
-            "যে মেসেজটি দেখতে চাও সেটি এই বটে Forward করো।\n\n"
-            "Telegram প্রেরকের পরিচয় প্রকাশ করলে শুধু সেই তথ্য দেখানো হবে।"
+            "📩 যে মেসেজটি দেখতে চাও সেটি এই বটে Forward করো।"
         )
-        return
 
-    if text == "📖 How To Use":
+    elif text == "📖 How To Use":
         send(
             chat_id,
-            "📖 How To Use\n\n"
-            "1. Select User চাপ দিয়ে Telegram থেকে একজন User বেছে নাও।\n"
-            "2. Forward Message চাপ দিয়ে একটি মেসেজ Forward করো।\n"
+            "📖 HOW TO USE\n\n"
+            "1. Select User দিয়ে Telegram User Picker থেকে User বেছে নাও।\n"
+            "2. Forward Message দিয়ে মেসেজ Forward করো।\n"
             "3. My Information দিয়ে নিজের তথ্য দেখো।\n\n"
-            "⚠️ গোপন ফোন নম্বর, Last Seen বা ব্যক্তিগত তথ্য এই বট দিতে পারে না।"
+            "⚠️ গোপন ফোন নম্বর বা Last Seen পাওয়া যায় না।"
         )
-        return
 
-    if message.get("users_shared"):
+    elif message.get("users_shared"):
         selected_user(chat_id, message["users_shared"])
-        return
 
-    if message.get("forward_origin"):
+    elif message.get("forward_origin"):
         forwarded_user(chat_id, message)
-        return
 
 def handle_callback(callback):
+    callback_id = callback.get("id")
     data = callback.get("data")
     chat_id = callback.get("message", {}).get("chat", {}).get("id")
     user_id = callback.get("from", {}).get("id")
 
     api("answerCallbackQuery", {
-        "callback_query_id": callback.get("id")
+        "callback_query_id": callback_id
     })
 
     if data == "verify" and chat_id:
         if is_member(user_id):
-            send(chat_id, "✅ Verification Successful!")
+            send(chat_id, "✅ Verification Successful!\n\nWelcome!")
             main_menu(chat_id)
         else:
             join_page(chat_id)
 
 @app.route("/", methods=["GET"])
 def home():
-    return "Team Shadow Striker Bot is running!"
+    return "Team Shadow Striker Bot Running!"
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -242,19 +276,16 @@ def webhook():
 
     if "message" in update:
         handle_message(update["message"])
+
     elif "callback_query" in update:
         handle_callback(update["callback_query"])
 
     return "OK", 200
 
-if __name__ == "__main__":
-    render_url = os.environ.get("RENDER_EXTERNAL_URL")
-    if render_url:
-        api("setWebhook", {
-            "url": render_url.rstrip("/") + "/webhook"
-        })
+# Render Webhook Auto Setup
+render_url = os.environ.get("RENDER_EXTERNAL_URL")
 
-    app.run(
-        host="0.0.0.0",
-        port=int(os.environ.get("PORT", 10000))
-            )
+if render_url:
+    api("setWebhook", {
+        "url": render_url.rstrip("/") + "/webhook"
+    })
