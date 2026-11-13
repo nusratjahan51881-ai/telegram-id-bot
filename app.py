@@ -2,6 +2,8 @@ import os
 import html
 import sqlite3
 import requests
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
@@ -11,17 +13,18 @@ BASE = f"https://api.telegram.org/bot{TOKEN}"
 CHANNEL = "@team_shadow_striker"
 CHANNEL_LINK = "https://t.me/team_shadow_striker"
 DB = "users.db"
+TZ = ZoneInfo("Asia/Dhaka")
 
 def api(method, data=None):
     r = requests.post(
         f"{BASE}/{method}",
         json=data or {},
-        timeout=15
+        timeout=20
     )
     r.raise_for_status()
     result = r.json()
     if not result.get("ok"):
-        raise Exception(result.get("description", "Telegram API error"))
+        raise Exception(result.get("description"))
     return result["result"]
 
 def db_init():
@@ -45,6 +48,21 @@ def db_init():
 def esc(value):
     return html.escape(str(value or ""))
 
+def now_info():
+    now = datetime.now(TZ)
+    hour = now.hour
+
+    if 5 <= hour < 12:
+        greeting = "শুভ সকাল"
+    elif 12 <= hour < 17:
+        greeting = "শুভ দুপুর"
+    elif 17 <= hour < 20:
+        greeting = "শুভ সন্ধ্যা"
+    else:
+        greeting = "শুভ রাত্রি"
+
+    return greeting, now.strftime("%I:%M %p")
+
 def send(chat_id, text, keyboard=None):
     data = {
         "chat_id": chat_id,
@@ -53,75 +71,13 @@ def send(chat_id, text, keyboard=None):
     }
     if keyboard:
         data["reply_markup"] = keyboard
-    api("sendMessage", data)
+    return api("sendMessage", data)
 
-def is_member(user_id):
-    try:
-        member = api("getChatMember", {
-            "chat_id": CHANNEL,
-            "user_id": user_id
-        })
-        status = member.get("status")
-        return (
-            status in ("creator", "administrator", "member")
-            or (
-                status == "restricted"
-                and member.get("is_member", False)
-            )
-        )
-    except Exception:
-        return False
-
-def join_message(chat_id):
-    keyboard = {
-        "inline_keyboard": [
-            [{
-                "text": "📢 Join Channel",
-                "url": CHANNEL_LINK
-            }],
-            [{
-                "text": "✅ Verify",
-                "callback_data": "verify"
-            }]
-        ]
-    }
-    send(
-        chat_id,
-        "⚡ <b>TEAM SHADOW STRIKER</b>\n\n"
-        "বট ব্যবহার করতে আমাদের Channel-এ Join করুন।\n"
-        "Join করার পর Verify চাপুন।",
-        keyboard
-    )
-
-def main_menu(chat_id):
-    keyboard = {
-        "keyboard": [
-            [{"text": "🆔 My Information"}],
-            [{"text": "ℹ️ How To Use"}]
-        ],
-        "resize_keyboard": True
-    }
-    send(
-        chat_id,
-        "⚡ <b>TEAM SHADOW STRIKER</b>\n\n"
-        "Welcome! Bot is ready.\n\n"
-        "কোনো ব্যক্তির উপলব্ধ তথ্য দেখতে তার Forward করা "
-        "মেসেজ পাঠান।",
-        keyboard
-    )
-
-def photo_count(user_id):
-    try:
-        result = api("getUserProfilePhotos", {
-            "user_id": user_id,
-            "limit": 1
-        })
-        return str(result.get("total_count", 0))
-    except Exception:
-        return "পাওয়া যায়নি"
-
-def save_profile(user):
+def save_user(user):
     uid = user.get("id")
+    if not uid:
+        return
+
     first = user.get("first_name", "")
     last = user.get("last_name", "")
     username = user.get("username", "")
@@ -141,92 +97,241 @@ def save_profile(user):
             username=excluded.username
         """, (uid, first, last, username))
 
-        history = con.execute(
-            "SELECT username FROM usernames WHERE user_id=?",
-            (uid,)
-        ).fetchall()
-
-    previous = [
-        row[0] for row in history
-        if row[0] and row[0] != username
-    ]
-    return first, last, username, previous
-
-def unavailable():
-    return "❌ এই তথ্য পাওয়া যায়নি। আবার চেষ্টা করুন।"
-
-def make_report(user):
-    uid = user.get("id")
-    first, last, username, previous = save_profile(user)
-
-    old_names = (
-        ", ".join("@" + x for x in previous)
-        if previous else unavailable()
+def is_member(uid):
+    member = api("getChatMember", {
+        "chat_id": CHANNEL,
+        "user_id": uid
+    })
+    status = member.get("status")
+    return (
+        status in ("creator", "administrator", "member")
+        or (
+            status == "restricted"
+            and member.get("is_member", False)
+        )
     )
 
-    photos = photo_count(uid)
+def identity(user):
+    first = user.get("first_name", "")
+    last = user.get("last_name", "")
+    username = user.get("username", "")
+    uid = user.get("id")
 
     return (
-        "⚡ <b>USER INFORMATION</b>\n\n"
-        f"🆔 Chat ID: <code>{uid}</code>\n"
-        f"👤 Name: {esc(first)} {esc(last)}\n"
+        f"👤 নাম: <b>{esc(first)} {esc(last)}</b>\n"
         f"📛 Username: "
-        f"{('@' + esc(username)) if username else unavailable()}\n"
-        f"🟢 Last Seen: {unavailable()}\n"
-        f"👥 Total Groups: {unavailable()}\n"
-        f"📝 Bio: {unavailable()}\n"
-        f"🖼️ Profile Photos: {esc(photos)}\n"
-        f"🔄 Previously Observed Usernames: {esc(old_names)}\n"
-        f"📅 Name Change Date: {unavailable()}\n"
-        f"📱 Phone Number: {unavailable()}\n\n"
-        "━━━━━━━━━━━━━━━━━━\n"
-        "<b>Bot From Team Shadow Striker</b> ⚡"
+        f"{('@' + esc(username)) if username else 'নেই'}\n"
+        f"🆔 Chat ID: <code>{uid}</code>"
     )
+
+def join_page(chat_id, user):
+    greeting, clock = now_info()
+
+    text = (
+        f"⚡ <b>TEAM SHADOW STRIKER</b>\n\n"
+        f"{greeting}, <b>{esc(user.get('first_name'))}</b>! ❤️\n\n"
+        f"{identity(user)}\n"
+        f"🕒 সময়: <b>{clock}</b>\n\n"
+        "বটটি ব্যবহার করতে হলে নিচের লিংকে চাপ দিয়ে "
+        "আমাদের Telegram Channel-এ Join করুন।\n\n"
+        "Join করার পর Verify বাটনে চাপ দিন।"
+    )
+
+    keyboard = {
+        "inline_keyboard": [
+            [{
+                "text": "📢 JOIN OUR CHANNEL",
+                "url": CHANNEL_LINK
+            }],
+            [{
+                "text": "✅ VERIFY",
+                "callback_data": "verify"
+            }]
+        ]
+    }
+
+    send(chat_id, text, keyboard)
+
+def main_menu(chat_id, user):
+    greeting, clock = now_info()
+
+    text = (
+        f"⚡ <b>TEAM SHADOW STRIKER</b>\n\n"
+        f"{greeting}, <b>{esc(user.get('first_name'))}</b>! ❤️\n\n"
+        f"{identity(user)}\n"
+        f"🕒 বাংলাদেশ সময়: <b>{clock}</b>\n\n"
+        "স্বাগতম! বট ব্যবহার করতে নিচের মেনু থেকে অপশন বেছে নিন।"
+    )
+
+    keyboard = {
+        "keyboard": [
+            [{"text": "👤 Select User"}],
+            [{"text": "🆔 My Information"}],
+            [{"text": "ℹ️ How To Use"}]
+        ],
+        "resize_keyboard": True
+    }
+
+    send(chat_id, text, keyboard)
+
+def user_list(chat_id):
+    with sqlite3.connect(DB) as con:
+        rows = con.execute("""
+            SELECT user_id, first_name, last_name, username
+            FROM profiles
+            ORDER BY first_name COLLATE NOCASE
+            LIMIT 30
+        """).fetchall()
+
+    if not rows:
+        send(
+            chat_id,
+            "এখনো কোনো User পাওয়া যায়নি।\n"
+            "প্রথমে কোনো ব্যক্তির Forward করা Message পাঠান।"
+        )
+        return
+
+    buttons = []
+
+    for uid, first, last, username in rows:
+        name = (first + " " + last).strip() or str(uid)
+        if username:
+            name += " (@" + username + ")"
+
+        buttons.append([{
+            "text": "👤 " + name[:45],
+            "callback_data": "user:" + str(uid)
+        }])
+
+    send(
+        chat_id,
+        "⚡ <b>SELECT USER</b>\n\n"
+        "যার তথ্য দেখতে চান তাকে নির্বাচন করুন:",
+        {"inline_keyboard": buttons}
+    )
+
+def user_report(chat_id, uid):
+    with sqlite3.connect(DB) as con:
+        row = con.execute("""
+            SELECT user_id, first_name, last_name, username
+            FROM profiles WHERE user_id=?
+        """, (uid,)).fetchone()
+
+    if not row:
+        send(chat_id, "এই User-এর তথ্য পাওয়া যায়নি।")
+        return
+
+    uid, first, last, username = row
+    name = (first + " " + last).strip() or "Unknown"
+
+    try:
+        photos = api("getUserProfilePhotos", {
+            "user_id": uid,
+            "offset": 0,
+            "limit": 1
+        })
+
+        count = photos.get("total_count", 0)
+        photo_id = None
+
+        if photos.get("photos"):
+            photo_id = photos["photos"][0][-1]["file_id"]
+
+    except Exception:
+        count = None
+        photo_id = None
+
+    report = (
+        "⚡ <b>USER INFORMATION</b>\n\n"
+        f"👤 Name: <b>{esc(name)}</b>\n\n"
+        f"📛 Username: "
+        f"{('@' + esc(username)) if username else 'পাওয়া যায়নি'}\n"
+        f"🆔 Chat ID: <code>{uid}</code>\n"
+        f"🖼️ Profile Photos: "
+        f"<b>{count if count is not None else 'পাওয়া যায়নি'}</b>\n\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "<b>Bot From Team Shadow Striker ⚡</b>"
+    )
+
+    if photo_id:
+        api("sendPhoto", {
+            "chat_id": chat_id,
+            "photo": photo_id,
+            "caption": report,
+            "parse_mode": "HTML"
+        })
+    else:
+        send(chat_id, report)
 
 def handle_message(message):
     chat_id = message["chat"]["id"]
-    sender_id = message.get("from", {}).get("id")
-
-    if not sender_id or not is_member(sender_id):
-        join_message(chat_id)
-        return
-
+    user = message.get("from", {})
+    uid = user.get("id")
     text = message.get("text", "")
 
+    if not uid:
+        return
+
     if text.startswith("/start"):
-        main_menu(chat_id)
+        save_user(user)
+
+        try:
+            if is_member(uid):
+                main_menu(chat_id, user)
+            else:
+                join_page(chat_id, user)
+        except Exception:
+            send(
+                chat_id,
+                "⚠️ Channel verification করা যাচ্ছে না। "
+                "Bot-কে Channel Admin করুন।"
+            )
+        return
+
+    try:
+        if not is_member(uid):
+            join_page(chat_id, user)
+            return
+    except Exception:
+        send(chat_id, "Channel verification ব্যর্থ হয়েছে।")
+        return
+
+    if text == "👤 Select User":
+        user_list(chat_id)
         return
 
     if text == "🆔 My Information":
-        user = message.get("from", {})
-        send(chat_id, make_report(user))
+        save_user(user)
+        user_report(chat_id, uid)
         return
 
     if text == "ℹ️ How To Use":
         send(
             chat_id,
-            "একটি Telegram Message Forward করে পাঠান। "
-            "Telegram যে Sender Information প্রকাশ করে, "
-            "শুধু সেটিই দেখানো হবে।"
+            "কোনো User-এর Forward করা Message পাঠান।\n"
+            "তারপর Select User থেকে তাকে নির্বাচন করুন।\n\n"
+            "শুধু Telegram API-তে উপলব্ধ তথ্য দেখানো হবে।"
         )
         return
 
-    origin = message.get("forward_origin")
+    origin = message.get("forward_origin", {})
 
-    if not origin or origin.get("type") != "user":
-        send(
-            chat_id,
-            "কোনো User-এর Forward করা Message পাঠান।\n\n"
-            "Hidden Forward-এর তথ্য পাওয়া সম্ভব নয়।"
-        )
-        return
+    if origin.get("type") == "user":
+        forwarded_user = origin.get("sender_user", {})
+        if forwarded_user.get("id"):
+            save_user(forwarded_user)
+            send(
+                chat_id,
+                "✅ User তালিকায় যোগ হয়েছে!\n\n"
+                "এখন 👤 Select User চাপুন।"
+            )
+            return
 
-    user = origin.get("sender_user", {})
-    if not user.get("id"):
-        send(chat_id, unavailable())
-        return
-
-    send(chat_id, make_report(user))
+    send(
+        chat_id,
+        "কোনো User-এর Forward করা Message পাঠান "
+        "অথবা নিচের Menu ব্যবহার করুন।"
+    )
 
 @app.route("/")
 def home():
@@ -237,26 +342,35 @@ def webhook():
     data = request.get_json(silent=True) or {}
 
     callback = data.get("callback_query")
+
     if callback:
         try:
-            user_id = callback["from"]["id"]
+            uid = callback["from"]["id"]
             chat_id = callback["message"]["chat"]["id"]
+            action = callback.get("data", "")
 
             api("answerCallbackQuery", {
                 "callback_query_id": callback["id"]
             })
 
-            if callback.get("data") == "verify":
-                if is_member(user_id):
-                    main_menu(chat_id)
-                else:
-                    join_message(chat_id)
+            if not is_member(uid):
+                user = callback["from"]
+                join_page(chat_id, user)
+
+            elif action == "verify":
+                main_menu(chat_id, callback["from"])
+
+            elif action.startswith("user:"):
+                selected_id = int(action.split(":", 1)[1])
+                user_report(chat_id, selected_id)
+
         except Exception:
-            pass
+            return jsonify({"ok": False}), 500
 
         return jsonify({"ok": True})
 
     message = data.get("message")
+
     if message:
         try:
             handle_message(message)
