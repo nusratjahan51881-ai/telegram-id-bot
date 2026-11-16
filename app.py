@@ -2,14 +2,16 @@ import os
 import json
 import time
 import logging
-import requests
 import html
+import requests
 
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from flask import Flask, request, jsonify
 
-# ================= CONFIG =================
+# ==================================================
+# TEAM SHADOW STRIKER - TG INFO BOT V4
+# ==================================================
 
 app = Flask(__name__)
 
@@ -26,7 +28,9 @@ API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ================= TELEGRAM API =================
+# ==================================================
+# TELEGRAM API
+# ==================================================
 
 def api(method, data=None):
     try:
@@ -37,7 +41,7 @@ def api(method, data=None):
         )
         return response.json()
     except Exception as error:
-        logger.error("Telegram API Error: %s", error)
+        logger.error("API Error: %s", error)
         return {"ok": False, "description": str(error)}
 
 
@@ -58,10 +62,42 @@ def answer_callback(callback_id, text=""):
 
 
 def safe(value):
-    return html.escape(str(value if value is not None else "Unavailable"))
+    if value is None or value == "":
+        value = "Unavailable"
+    return html.escape(str(value))
 
 
-# ================= TIME =================
+def send_long(chat_id, text, parse_mode="HTML"):
+    """Send long reports in multiple messages."""
+    limit = 3800
+
+    while text:
+        if len(text) <= limit:
+            part = text
+            text = ""
+        else:
+            split_at = text.rfind("\n", 0, limit)
+
+            if split_at < 100:
+                split_at = limit
+
+            part = text[:split_at]
+            text = text[split_at:].lstrip("\n")
+
+        result = send(
+            chat_id,
+            part,
+            parse_mode=parse_mode
+        )
+
+        if not result.get("ok"):
+            logger.error("Report sending failed: %s", result)
+            break
+
+
+# ==================================================
+# TIME
+# ==================================================
 
 def current_time():
     return datetime.now(
@@ -82,7 +118,9 @@ def greeting():
     return "শুভ রাত্রি"
 
 
-# ================= VERIFICATION =================
+# ==================================================
+# CHANNEL VERIFICATION
+# ==================================================
 
 def is_member(user_id):
     if not user_id:
@@ -103,7 +141,7 @@ def is_member(user_id):
         status in ("member", "administrator", "creator")
         or (
             status == "restricted"
-            and member.get("is_member")
+            and member.get("is_member", False)
         )
     )
 
@@ -124,7 +162,8 @@ def join_page(chat_id):
 
     send(
         chat_id,
-        "🔐 TEAM SHADOW STRIKER\n\n"
+        "🔐 TEAM SHADOW STRIKER\n"
+        "━━━━━━━━━━━━━━━━━━\n\n"
         "বট ব্যবহার করতে প্রথমে আমাদের Channel-এ Join করো।\n\n"
         "1️⃣ Join Channel চাপ দাও\n"
         "2️⃣ Channel-এ Join করো\n"
@@ -134,15 +173,16 @@ def join_page(chat_id):
     )
 
 
-# ================= MAIN MENU =================
+# ==================================================
+# MAIN MENU
+# ==================================================
 
 def main_menu(chat_id):
     keyboard = {
         "keyboard": [
             [
-                {"text": "👤 My Information"},
                 {
-                    "text": "🔎 Select User",
+                    "text": "👤 User Information",
                     "request_users": {
                         "request_id": 1001,
                         "user_is_bot": False,
@@ -175,36 +215,18 @@ def main_menu(chat_id):
         chat_id,
         "⚡ TEAM SHADOW STRIKER\n"
         "━━━━━━━━━━━━━━━━━━\n\n"
-        "Welcome to TG Info Bot V3!\n\n"
+        "Welcome to TG Info Bot V4!\n\n"
         "নিচের Menu থেকে একটি Feature নির্বাচন করো।\n\n"
         f"🕒 {current_time()}",
         reply_markup=keyboard
     )
 
 
-# ================= USER INFORMATION =================
+# ==================================================
+# USER INFORMATION
+# ==================================================
 
-def my_info(chat_id, user):
-    username = user.get("username")
-
-    text = (
-        "👤 MY INFORMATION\n"
-        "━━━━━━━━━━━━━━━━━━\n\n"
-        f"📝 Name: {user.get('first_name', 'Unknown')}\n"
-        f"📝 Last Name: {user.get('last_name', 'Not set')}\n"
-        f"📛 Username: @{username if username else 'Not set'}\n"
-        f"🆔 User ID: {user.get('id')}\n"
-        f"🌐 Language: {user.get('language_code', 'Unknown')}\n"
-        f"🤖 Is Bot: {user.get('is_bot', False)}\n"
-        f"📱 Premium: {user.get('is_premium', 'Unknown')}\n"
-        f"🕒 Time: {current_time()}\n\n"
-        "⚡ TEAM SHADOW STRIKER"
-    )
-
-    send(chat_id, text)
-
-
-def selected_user(chat_id, shared):
+def user_information(chat_id, shared):
     users = shared.get("users", [])
 
     if not users:
@@ -212,7 +234,7 @@ def selected_user(chat_id, shared):
         return
 
     for user in users:
-        uid = user.get("user_id", "Unavailable")
+        user_id = user.get("user_id")
 
         name = " ".join(filter(None, [
             user.get("first_name", ""),
@@ -220,57 +242,96 @@ def selected_user(chat_id, shared):
         ])) or "Unavailable"
 
         username = user.get("username")
-        photos = user.get("photo", [])
+        shared_photos = user.get("photo", [])
+
+        # Get profile photos through Telegram API
+        photo_result = api("getUserProfilePhotos", {
+            "user_id": user_id,
+            "limit": 5
+        })
+
+        photos = []
+
+        if photo_result.get("ok"):
+            photos = photo_result.get(
+                "result", {}
+            ).get("photos", [])
 
         text = (
-            "🔎 SELECTED USER INFORMATION\n"
+            "👤 USER INFORMATION V4\n"
             "━━━━━━━━━━━━━━━━━━\n\n"
-            f"👤 Name: {name}\n"
-            f"📛 Username: @{username if username else 'Not shared'}\n"
-            f"🆔 User ID: {uid}\n"
-            f"🖼️ Profile Photo: {'Available' if photos else 'Not shared'}\n"
+            f"📝 Full Name: {safe(name)}\n"
+            f"📛 Username: @{safe(username) if username else 'Not set'}\n"
+            f"🆔 User ID: <code>{user_id}</code>\n"
+            f"🌐 Source: Telegram User Picker\n"
+            f"🖼️ Shared Photo: {'Available' if shared_photos else 'Not shared'}\n"
+            f"📸 Profile Photo Count: "
+            f"{photo_result.get('result', {}).get('total_count', 0) if photo_result.get('ok') else 'Unavailable'}\n"
             f"🕒 Time: {current_time()}\n\n"
+            "⚠️ Personal Story access is not available through the Bot API.\n\n"
             "⚡ TEAM SHADOW STRIKER"
         )
 
-        if photos:
-            largest = max(
-                photos,
-                key=lambda p: p.get("file_size", 0)
-            )
+        send(
+            chat_id,
+            text,
+            parse_mode="HTML"
+        )
+
+        # Send latest available profile photo
+        if photos and photos[0]:
+            largest = photos[0][-1]
 
             api("sendPhoto", {
                 "chat_id": chat_id,
                 "photo": largest["file_id"],
-                "caption": text
+                "caption": "🖼️ Selected User Profile Photo"
             })
-        else:
-            send(chat_id, text)
+
+        elif shared_photos:
+            largest = max(
+                shared_photos,
+                key=lambda p: p.get("file_size", 0)
+            )
+
+            if largest.get("file_id"):
+                api("sendPhoto", {
+                    "chat_id": chat_id,
+                    "photo": largest["file_id"],
+                    "caption": "🖼️ Shared User Profile Photo"
+                })
 
 
-# ================= CHAT SELECTION =================
+# ==================================================
+# GROUP / CHANNEL SELECTOR
+# ==================================================
 
-def chat_selection(chat_id, mode="all"):
-
+def chat_selection(chat_id, mode):
     buttons = []
 
-    if mode in ("all", "group"):
+    if mode in ("group", "all"):
         buttons.append({
             "text": "👥 Select Group",
             "request_chat": {
                 "request_id": 2001,
                 "chat_is_channel": False,
-                "bot_is_member": True
+                "bot_is_member": True,
+                "request_title": True,
+                "request_username": True,
+                "request_photo": True
             }
         })
 
-    if mode in ("all", "channel"):
+    if mode in ("channel", "all"):
         buttons.append({
             "text": "📢 Select Channel",
             "request_chat": {
                 "request_id": 2002,
                 "chat_is_channel": True,
-                "bot_is_member": True
+                "bot_is_member": True,
+                "request_title": True,
+                "request_username": True,
+                "request_photo": True
             }
         })
 
@@ -284,7 +345,7 @@ def chat_selection(chat_id, mode="all"):
 
     send(
         chat_id,
-        "🔎 CHAT SELECTION\n"
+        "🔎 ADVANCED CHAT SELECTOR\n"
         "━━━━━━━━━━━━━━━━━━\n\n"
         "তুমি কোন Chat-এর Information দেখতে চাও?\n\n"
         "👥 Group অথবা 📢 Channel নির্বাচন করো।\n\n"
@@ -293,7 +354,35 @@ def chat_selection(chat_id, mode="all"):
     )
 
 
-# ================= CHAT ANALYZER =================
+# ==================================================
+# CHAT PROFILE PHOTO
+# ==================================================
+
+def send_chat_photo(chat_id, chat):
+    photo = chat.get("photo", {})
+
+    file_id = photo.get("big_file_id")
+
+    if not file_id:
+        file_id = photo.get("small_file_id")
+
+    if not file_id:
+        send(chat_id, "🖼️ Profile Picture পাওয়া যায়নি।")
+        return
+
+    result = api("sendPhoto", {
+        "chat_id": chat_id,
+        "photo": file_id,
+        "caption": "🖼️ Group / Channel Profile Picture"
+    })
+
+    if not result.get("ok"):
+        send(chat_id, "⚠️ Profile Picture পাঠানো যায়নি।")
+
+
+# ==================================================
+# ADVANCED GROUP / CHANNEL ANALYZER
+# ==================================================
 
 def chat_info(chat_id, selected_chat_id):
 
@@ -305,13 +394,14 @@ def chat_info(chat_id, selected_chat_id):
         send(
             chat_id,
             "❌ Chat Information পাওয়া যায়নি।\n\n"
-            "নিশ্চিত করো যে Bot নির্বাচিত Chat-এ যুক্ত আছে।"
+            "Bot নির্বাচিত Chat-এ যুক্ত আছে কিনা দেখো।"
         )
         return
 
     chat = result.get("result", {})
     actual_id = chat.get("id")
 
+    # Member Count
     count_result = api("getChatMemberCount", {
         "chat_id": actual_id
     })
@@ -323,22 +413,29 @@ def chat_info(chat_id, selected_chat_id):
     )
 
     chat_type = chat.get("type", "Unknown")
+    username = chat.get("username")
 
-    # Admin Information
+    if username:
+        full_link = f"https://t.me/{username}"
+    else:
+        full_link = chat.get("invite_link", "Not available")
+
+    # Admin list
     admin_result = api("getChatAdministrators", {
         "chat_id": actual_id
     })
 
-    admins = []
-    admin_status = admin_result.get("ok", False)
+    admins = (
+        admin_result.get("result", [])
+        if admin_result.get("ok")
+        else []
+    )
 
-    if admin_status:
-        admins = admin_result.get("result", [])
+    admin_available = admin_result.get("ok", False)
 
-    total_admins = len(admins)
-
-    bot_admins = []
     human_admins = []
+    bot_admins = []
+    creator = None
 
     for admin in admins:
         user = admin.get("user", {})
@@ -351,50 +448,67 @@ def chat_info(chat_id, selected_chat_id):
             "username": user.get("username"),
             "id": user.get("id"),
             "status": admin.get("status", "Unknown"),
-            "is_bot": user.get("is_bot", False)
+            "is_bot": user.get("is_bot", False),
+            "custom_title": admin.get("custom_title")
         }
+
+        if item["status"] == "creator":
+            creator = item
 
         if item["is_bot"]:
             bot_admins.append(item)
         else:
             human_admins.append(item)
 
-    username = chat.get("username")
-    description = chat.get("description", "Not available")
-    invite_link = chat.get("invite_link", "Not available")
-
-    # Basic Information
+    # Basic information
     text = (
-        "🔎 ADVANCED CHAT ANALYZER\n"
+        "🔎 ADVANCED CHAT ANALYZER V4\n"
         "━━━━━━━━━━━━━━━━━━\n\n"
         "📌 BASIC INFORMATION\n"
         "━━━━━━━━━━━━━━━━━━\n"
         f"📝 Name: {safe(chat.get('title'))}\n"
         f"📛 Username: @{safe(username) if username else 'Not available'}\n"
+        f"🔗 Full Link: {safe(full_link)}\n"
         f"🆔 Chat ID: <code>{actual_id}</code>\n"
         f"📂 Type: {safe(chat_type)}\n"
         f"👥 Total Members: {member_count}\n"
-        f"📝 Description: {safe(description)}\n"
-        f"🔗 Invite Link: {safe(invite_link)}\n"
+        f"📝 Description: {safe(chat.get('description'))}\n"
         f"🕒 Time: {current_time()}\n\n"
     )
 
-    # Admin Information
+    # Creator
     text += (
-        "👑 ADMIN INFORMATION\n"
+        "👑 CREATOR INFORMATION\n"
         "━━━━━━━━━━━━━━━━━━\n"
     )
 
-    if admin_status:
+    if creator:
         text += (
-            f"👑 Total Admins: {total_admins}\n"
+            f"👤 Name: {safe(creator['name'])}\n"
+            f"📛 Username: @{safe(creator['username']) if creator['username'] else 'Not set'}\n"
+            f"🆔 ID: <code>{creator['id']}</code>\n\n"
+        )
+    elif admin_available:
+        text += "Creator Information Unavailable\n\n"
+    else:
+        text += "Admin permission unavailable\n\n"
+
+    # Admin statistics
+    text += (
+        "👑 ADMIN STATISTICS\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+    )
+
+    if admin_available:
+        text += (
+            f"👑 Total Admins: {len(admins)}\n"
             f"👤 Human Admins: {len(human_admins)}\n"
             f"🤖 Bot Admins: {len(bot_admins)}\n\n"
         )
 
         text += "📋 ADMIN LIST\n\n"
 
-        for index, admin in enumerate(admins[:15], 1):
+        for index, admin in enumerate(admins[:12], 1):
             role = (
                 "Creator"
                 if admin["status"] == "creator"
@@ -406,51 +520,61 @@ def chat_info(chat_id, selected_chat_id):
                 f"   🆔 ID: <code>{admin['id']}</code>\n"
                 f"   📛 Username: @{safe(admin['username']) if admin['username'] else 'Not set'}\n"
                 f"   👑 Role: {role}\n"
-                f"   🤖 Bot: {'Yes' if admin['is_bot'] else 'No'}\n\n"
+                f"   🤖 Bot: {'Yes' if admin['is_bot'] else 'No'}\n"
             )
 
-        if total_admins > 15:
-            text += f"... এবং আরও {total_admins - 15} জন Admin\n\n"
+            if admin["custom_title"]:
+                text += (
+                    f"   🏷️ Title: {safe(admin['custom_title'])}\n"
+                )
+
+            text += "\n"
+
+        if len(admins) > 12:
+            text += f"... আরও {len(admins) - 12} জন Admin রয়েছে।\n\n"
 
     else:
         text += (
-            "⚠️ Admin List পাওয়া যায়নি।\n"
-            "Bot-কে Group/Channel Admin করতে হতে পারে।\n\n"
+            "⚠️ Admin Information পাওয়া যায়নি।\n"
+            "Chat access ও Bot permissions পরীক্ষা করো।\n\n"
         )
 
-    # Bot Information
+    # Bot Admin Information
     text += (
-        "🤖 BOT ADMIN ANALYZER\n"
+        "🤖 BOT ADMIN INFORMATION\n"
         "━━━━━━━━━━━━━━━━━━\n"
     )
 
-    if admin_status:
-        if bot_admins:
-            for index, bot in enumerate(bot_admins, 1):
-                text += (
-                    f"{index}. {safe(bot['name'])}\n"
-                    f"   🆔 ID: <code>{bot['id']}</code>\n"
-                    f"   📛 Username: @{safe(bot['username']) if bot['username'] else 'Not set'}\n\n"
-                )
-        else:
-            text += "❌ কোনো Bot Admin পাওয়া যায়নি।\n\n"
+    if admin_available and bot_admins:
+        for index, bot in enumerate(bot_admins, 1):
+            text += (
+                f"{index}. {safe(bot['name'])}\n"
+                f"   🆔 ID: <code>{bot['id']}</code>\n"
+                f"   📛 Username: @{safe(bot['username']) if bot['username'] else 'Not set'}\n"
+                f"   👑 Role: {safe(bot['status'])}\n\n"
+            )
+
+    elif admin_available:
+        text += "❌ কোনো Bot Admin পাওয়া যায়নি।\n\n"
+
     else:
-        text += "⚠️ Bot Admin List Unavailable\n\n"
+        text += "⚠️ Bot Admin Information Unavailable\n\n"
 
-    text += "⚡ TEAM SHADOW STRIKER"
-
-    # Telegram message length protection
-    if len(text) > 3900:
-        text = text[:3800] + "\n\n⚠️ List shortened."
-
-    send(
-        chat_id,
-        text,
-        parse_mode="HTML"
+    text += (
+        "⚠️ Note: Telegram API সব সদস্যের তালিকা বা "
+        "সব সাধারণ সদস্যের Bot Status প্রকাশ করে না।\n\n"
+        "⚡ TEAM SHADOW STRIKER"
     )
 
+    send_long(chat_id, text)
 
-# ================= BOT INFORMATION =================
+    # Send channel / group photo
+    send_chat_photo(chat_id, chat)
+
+
+# ==================================================
+# BOT INFORMATION
+# ==================================================
 
 def bot_info(chat_id):
 
@@ -466,8 +590,8 @@ def bot_info(chat_id):
         chat_id,
         "🤖 BOT INFORMATION\n"
         "━━━━━━━━━━━━━━━━━━\n\n"
-        f"📝 Name: {bot.get('first_name')}\n"
-        f"📛 Username: @{bot.get('username')}\n"
+        f"📝 Name: {safe(bot.get('first_name'))}\n"
+        f"📛 Username: @{safe(bot.get('username'))}\n"
         f"🆔 Bot ID: {bot.get('id')}\n"
         f"🤖 Can Join Groups: {bot.get('can_join_groups')}\n"
         f"🔗 Inline Mode: {bot.get('supports_inline_queries')}\n"
@@ -476,7 +600,9 @@ def bot_info(chat_id):
     )
 
 
-# ================= JSON FORMATTER =================
+# ==================================================
+# JSON FORMATTER
+# ==================================================
 
 def json_formatter(chat_id, raw_text):
 
@@ -509,8 +635,7 @@ def json_formatter(chat_id, raw_text):
 
         send(
             chat_id,
-            "✅ JSON FORMATTED\n\n"
-            f"<pre>{safe(formatted)}</pre>",
+            f"✅ JSON FORMATTED\n\n<pre>{safe(formatted)}</pre>",
             parse_mode="HTML"
         )
 
@@ -518,7 +643,9 @@ def json_formatter(chat_id, raw_text):
         send(chat_id, "❌ Invalid JSON!")
 
 
-# ================= SERVER STATUS =================
+# ==================================================
+# SERVER STATUS
+# ==================================================
 
 def server_status(chat_id):
 
@@ -549,22 +676,22 @@ def server_status(chat_id):
     )
 
 
-# ================= HELP MENU =================
+# ==================================================
+# HELP MENU
+# ==================================================
 
 def help_menu(chat_id):
 
     send(
         chat_id,
-        "📖 TG INFO BOT V3\n"
+        "📖 TEAM SHADOW STRIKER V4\n"
         "━━━━━━━━━━━━━━━━━━\n\n"
-        "👤 My Information\n"
-        "নিজের Telegram Information।\n\n"
-        "🔎 Select User\n"
-        "User Picker দিয়ে তথ্য।\n\n"
+        "👤 User Information\n"
+        "User Picker দিয়ে তথ্য ও Profile Photo।\n\n"
         "👥 Group Information\n"
-        "Group অথবা Channel নির্বাচন করে Analyzer।\n\n"
+        "Group নির্বাচন করে Advanced Analyzer।\n\n"
         "📢 Channel Information\n"
-        "Channel Information Analyzer।\n\n"
+        "Channel নির্বাচন করে Full Information।\n\n"
         "🤖 Bot Information\n"
         "Bot Details।\n\n"
         "🧾 JSON Formatter\n"
@@ -572,11 +699,13 @@ def help_menu(chat_id):
         "📊 Server Status\n"
         "Bot ও API Status।\n\n"
         "⚠️ Telegram API-এর সীমাবদ্ধতার কারণে "
-        "সব সদস্যের পূর্ণ তালিকা পাওয়া যায় না।"
+        "Story বা সব সদস্যের তথ্য পাওয়া যায় না।"
     )
 
 
-# ================= FORWARD LOOKUP =================
+# ==================================================
+# FORWARD INFORMATION
+# ==================================================
 
 def forwarded_user(chat_id, message):
 
@@ -591,7 +720,6 @@ def forwarded_user(chat_id, message):
         return
 
     user = origin.get("sender_user", {})
-
     username = user.get("username")
 
     name = " ".join(filter(None, [
@@ -603,15 +731,17 @@ def forwarded_user(chat_id, message):
         chat_id,
         "🔎 FORWARD INFORMATION\n"
         "━━━━━━━━━━━━━━━━━━\n\n"
-        f"👤 Name: {name}\n"
-        f"📛 Username: @{username if username else 'Not available'}\n"
+        f"👤 Name: {safe(name)}\n"
+        f"📛 Username: @{safe(username) if username else 'Not available'}\n"
         f"🆔 User ID: {user.get('id', 'Unavailable')}\n"
         f"🕒 Time: {current_time()}\n\n"
         "⚡ TEAM SHADOW STRIKER"
     )
 
 
-# ================= MESSAGE HANDLER =================
+# ==================================================
+# MESSAGE HANDLER
+# ==================================================
 
 def handle_message(message):
 
@@ -624,6 +754,7 @@ def handle_message(message):
     user_id = user.get("id")
     text = message.get("text", "").strip()
 
+    # Start
     if text.startswith("/start"):
 
         if not is_member(user_id):
@@ -634,24 +765,29 @@ def handle_message(message):
             chat_id,
             f"{greeting()}, {user.get('first_name', 'বন্ধু')}!\n\n"
             "⚡ Welcome to TEAM SHADOW STRIKER!\n"
-            "TG Info Bot V3-তে স্বাগতম।"
+            "TG Info Bot V4-তে স্বাগতম।"
         )
 
         main_menu(chat_id)
         return
 
+    # Verification
     if not is_member(user_id):
         join_page(chat_id)
         return
 
-    # User Selection
+    # User Selector Response
     if message.get("users_shared"):
-        selected_user(chat_id, message["users_shared"])
+        user_information(
+            chat_id,
+            message["users_shared"]
+        )
         return
 
-    # Group / Channel Selection
+    # Group / Channel Selector Response
     if message.get("chat_shared"):
         shared = message["chat_shared"]
+
         selected_chat_id = shared.get("chat_id")
 
         if selected_chat_id:
@@ -661,32 +797,36 @@ def handle_message(message):
 
         return
 
-    # Commands
+    # Main Menu
+    if text in ("/menu", "⬅️ Main Menu"):
+        main_menu(chat_id)
+        return
+
     if text == "/help":
         help_menu(chat_id)
         return
 
-    if text == "/menu":
-        main_menu(chat_id)
-        return
+    # User Information
+    if text == "👤 User Information":
+        send(
+            chat_id,
+            "👤 উপরের User Information বাটনে চাপ দিয়ে "
+            "একজন Telegram User নির্বাচন করো।"
+        )
 
-    if text == "⬅️ Main Menu":
-        main_menu(chat_id)
-        return
-
-    # Features
-    if text == "👤 My Information":
-        my_info(chat_id, user)
-
+    # Group Information
     elif text == "👥 Group Information":
-        chat_selection(chat_id, "all")
+        chat_selection(chat_id, "group")
 
+    # Channel Information
     elif text == "📢 Channel Information":
         chat_selection(chat_id, "channel")
 
+    # Bot Information
     elif text == "🤖 Bot Information":
         bot_info(chat_id)
 
+    # JSON Formatter
     elif text == "🧾 JSON Formatter":
         send(
             chat_id,
@@ -726,14 +866,19 @@ def handle_message(message):
         )
 
 
-# ================= CALLBACK HANDLER =================
+# ==================================================
+# CALLBACK HANDLER
+# ==================================================
 
 def handle_callback(callback):
 
     callback_id = callback.get("id")
     data = callback.get("data")
 
-    chat_id = callback.get("message", {}).get("chat", {}).get("id")
+    chat_id = callback.get(
+        "message", {}
+    ).get("chat", {}).get("id")
+
     user_id = callback.get("from", {}).get("id")
 
     if data == "verify" and chat_id:
@@ -763,7 +908,9 @@ def handle_callback(callback):
             join_page(chat_id)
 
 
-# ================= FLASK ROUTES =================
+# ==================================================
+# FLASK ROUTES
+# ==================================================
 
 @app.route("/", methods=["GET"])
 def home():
@@ -771,7 +918,7 @@ def home():
     return jsonify({
         "bot": "TEAM SHADOW STRIKER",
         "status": "Running",
-        "version": "3.0"
+        "version": "4.0"
     })
 
 
@@ -801,7 +948,9 @@ def webhook():
     return "OK", 200
 
 
-# ================= WEBHOOK SETUP =================
+# ==================================================
+# WEBHOOK SETUP
+# ==================================================
 
 render_url = os.environ.get("RENDER_EXTERNAL_URL")
 
@@ -818,11 +967,13 @@ if render_url:
     logger.info("Webhook setup: %s", result)
 
 
-# ================= RUN =================
+# ==================================================
+# RUN
+# ==================================================
 
 if __name__ == "__main__":
 
     app.run(
         host="0.0.0.0",
         port=int(os.environ.get("PORT", 5000))
-    )
+        )
