@@ -1,6 +1,5 @@
 import os
 import time
-import html
 import logging
 import requests
 
@@ -9,24 +8,28 @@ from zoneinfo import ZoneInfo
 from flask import Flask, request, jsonify
 
 # ==================================================
-# TEAM SHADOW STRIKER | TG INFO BOT V5
+# TEAM SHADOW STRIKER | TG INFO BOT V6
 # ==================================================
 
 app = Flask(__name__)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
+
 if not BOT_TOKEN:
-    raise RuntimeError("BOT_TOKEN is missing")
+    raise RuntimeError("BOT_TOKEN environment variable is missing")
 
 CHANNEL = "@team_shadow_striker"
 CHANNEL_LINK = "https://t.me/team_shadow_striker"
+
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 SESSION = requests.Session()
-SESSION.headers.update({"User-Agent": "TeamShadowStriker/5.0"})
+SESSION.headers.update({
+    "User-Agent": "Team-Shadow-Striker-TGInfoBot/6.0"
+})
 
 
 # ==================================================
@@ -42,44 +45,66 @@ def api(method, data=None):
         )
         return response.json()
     except Exception as error:
-        logger.error("%s: %s", method, error)
+        logger.error("%s error: %s", method, error)
         return {"ok": False, "description": str(error)}
+
+
+def send(chat_id, text, **kwargs):
+    data = {
+        "chat_id": chat_id,
+        "text": text
+    }
+    data.update(kwargs)
+    return api("sendMessage", data)
 
 
 def safe(value):
     if value is None or value == "":
         value = "Not available"
-    return html.escape(str(value))
 
-
-def send(chat_id, text, **kwargs):
-    data = {"chat_id": chat_id, "text": text}
-    data.update(kwargs)
-    return api("sendMessage", data)
-
-
-def send_report(chat_id, sections):
-    """Send a report in safe, separate HTML messages."""
-    for section in sections:
-        if section:
-            result = send(
-                chat_id,
-                section,
-                parse_mode="HTML"
-            )
-            if not result.get("ok"):
-                logger.error("Report failed: %s", result)
+    return (
+        str(value)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
 
 
 def line(label, value):
     return f"<b>{safe(label)}:</b> {safe(value)}\n"
 
 
+# ==================================================
+# TIME
+# ==================================================
+
 def now():
     return datetime.now(
         ZoneInfo("Asia/Dhaka")
-    ).strftime("%d %B %Y | %I:%M:%S %p")
+    ).strftime("%d-%m-%Y | %I:%M:%S %p")
 
+
+def greeting():
+    hour = datetime.now(
+        ZoneInfo("Asia/Dhaka")
+    ).hour
+
+    if 5 <= hour < 12:
+        return "শুভ সকাল"
+
+    if 12 <= hour < 17:
+        return "শুভ দুপুর"
+
+    if 17 <= hour < 20:
+        return "শুভ সন্ধ্যা"
+
+    return "শুভ রাত্রি"
+
+
+# ==================================================
+# DESIGN
+# ==================================================
 
 def header(title):
     return (
@@ -89,8 +114,16 @@ def header(title):
     )
 
 
+def footer():
+    return (
+        "\n━━━━━━━━━━━━━━━━━━━━\n"
+        "<b>⚡ TEAM SHADOW STRIKER</b>\n"
+        f"<b>🕒 {now()}</b>"
+    )
+
+
 # ==================================================
-# VERIFICATION
+# CHANNEL VERIFICATION
 # ==================================================
 
 def is_member(user_id):
@@ -103,19 +136,18 @@ def is_member(user_id):
     })
 
     if not result.get("ok"):
-        logger.warning("Verification API failed: %s", result)
         return False
 
     member = result.get("result", {})
     status = member.get("status")
 
-    return (
-        status in ("member", "administrator", "creator")
-        or (
-            status == "restricted"
-            and member.get("is_member", False)
-        )
-    )
+    if status in ("member", "administrator", "creator"):
+        return True
+
+    if status == "restricted" and member.get("is_member"):
+        return True
+
+    return False
 
 
 def join_page(chat_id):
@@ -134,12 +166,12 @@ def join_page(chat_id):
 
     send(
         chat_id,
-        header("🔐 TEAM SHADOW STRIKER") +
-        "<b>Bot ব্যবহার করার আগে আমাদের Channel-এ Join করো।</b>\n\n"
+        header("🔐 TEAM SHADOW STRIKER")
+        + "<b>Bot ব্যবহার করতে প্রথমে আমাদের Channel-এ Join করো।</b>\n\n"
         "① Join Channel চাপ দাও\n"
         "② Channel-এ Join করো\n"
         "③ Verify Now চাপ দাও\n\n"
-        f"<b>🕒 {now()}</b>",
+        + footer(),
         parse_mode="HTML",
         reply_markup=keyboard
     )
@@ -172,7 +204,7 @@ def main_menu(chat_id):
                 {"text": "📊 SERVER STATUS"}
             ],
             [
-                {"text": "📖 HELP"}
+                {"text": "📖 HELP MENU"}
             ]
         ],
         "resize_keyboard": True,
@@ -181,11 +213,15 @@ def main_menu(chat_id):
 
     send(
         chat_id,
-        header("⚡ TEAM SHADOW STRIKER") +
-        "<b>WELCOME TO TG INFO BOT V5</b>\n\n"
+        header("⚡ TEAM SHADOW STRIKER")
+        + "<b>WELCOME TO TG INFO BOT V6</b>\n\n"
         "✨ Premium Telegram Information System\n\n"
-        f"<b>🕒 Bangladesh Time:</b> {now()}\n\n"
-        "<i>Select a feature below.</i>",
+        "<b>👤 User Information</b>\n"
+        "<b>👥 Group Analyzer</b>\n"
+        "<b>📢 Channel Analyzer</b>\n"
+        "<b>🤖 Bot Information</b>\n"
+        "<b>📊 Server Status</b>\n\n"
+        + footer(),
         parse_mode="HTML",
         reply_markup=keyboard
     )
@@ -199,18 +235,21 @@ def user_information(chat_id, shared):
     users = shared.get("users", [])
 
     if not users:
-        send(chat_id, "❌ User information পাওয়া যায়নি।")
+        send(chat_id, "❌ User Information পাওয়া যায়নি।")
         return
 
     for user in users:
         uid = user.get("user_id")
-        first = user.get("first_name", "")
-        last = user.get("last_name", "")
-        name = " ".join(filter(None, [first, last]))
+
+        name = " ".join(filter(None, [
+            user.get("first_name", ""),
+            user.get("last_name", "")
+        ]))
 
         username = user.get("username")
         shared_photos = user.get("photo", [])
 
+        # Try to retrieve profile photos
         photo_result = api("getUserProfilePhotos", {
             "user_id": uid,
             "limit": 5
@@ -220,30 +259,32 @@ def user_information(chat_id, shared):
         total_photos = "Unavailable"
 
         if photo_result.get("ok"):
-            result = photo_result.get("result", {})
-            photos = result.get("photos", [])
-            total_photos = result.get("total_count", 0)
+            photo_data = photo_result.get("result", {})
+            photos = photo_data.get("photos", [])
+            total_photos = photo_data.get("total_count", 0)
 
-        text = (
-            header("👤 USER PROFILE REPORT")
+        report = (
+            header("👤 USER PROFILE INFORMATION")
             + line("Full Name", name)
             + line("Username", "@" + username if username else "Not set")
             + line("User ID", uid)
-            + line("Account Type", "User")
+            + line("Account Type", "Telegram User")
             + line("Profile Photos", total_photos)
-            + line("Shared Photo", "Available" if shared_photos else "Not shared")
-            + line("Information Source", "Telegram User Picker")
-            + f"\n<b>🕒 Bangladesh Time:</b> {now()}\n\n"
-            "<i>Story and private Bio are not provided by Telegram Bot API.</i>\n\n"
-            "<b>⚡ TEAM SHADOW STRIKER</b>"
+            + line(
+                "Shared Photo",
+                "Available" if shared_photos else "Not shared"
+            )
+            + line("Selection", "Telegram User Picker")
+            + footer()
         )
 
-        send(chat_id, text, parse_mode="HTML")
+        send(chat_id, report, parse_mode="HTML")
 
         photo_id = None
 
         if photos and photos[0]:
             photo_id = photos[0][-1].get("file_id")
+
         elif shared_photos:
             photo_id = max(
                 shared_photos,
@@ -258,16 +299,19 @@ def user_information(chat_id, shared):
                 "parse_mode": "HTML"
             })
 
+        send(
+            chat_id,
+            "ℹ️ Telegram Bot API দিয়ে User-এর ব্যক্তিগত Story বা গোপন Bio দেখা যায় না।"
+        )
+
 
 # ==================================================
 # GROUP / CHANNEL SELECTOR
 # ==================================================
 
 def chat_selection(chat_id, mode):
-    buttons = []
-
     if mode == "group":
-        buttons.append({
+        button = {
             "text": "👥 SELECT GROUP",
             "request_chat": {
                 "request_id": 2001,
@@ -276,10 +320,12 @@ def chat_selection(chat_id, mode):
                 "request_username": True,
                 "request_photo": True
             }
-        })
+        }
 
-    elif mode == "channel":
-        buttons.append({
+        title = "👥 GROUP SELECTOR"
+
+    else:
+        button = {
             "text": "📢 SELECT CHANNEL",
             "request_chat": {
                 "request_id": 2002,
@@ -288,11 +334,13 @@ def chat_selection(chat_id, mode):
                 "request_username": True,
                 "request_photo": True
             }
-        })
+        }
+
+        title = "📢 CHANNEL SELECTOR"
 
     keyboard = {
         "keyboard": [
-            buttons,
+            [button],
             [{"text": "⬅️ MAIN MENU"}]
         ],
         "resize_keyboard": True
@@ -300,61 +348,70 @@ def chat_selection(chat_id, mode):
 
     send(
         chat_id,
-        header("🔎 ADVANCED CHAT SELECTOR") +
-        "<b>যে Group অথবা Channel-এর তথ্য দেখতে চাও সেটি Select করো।</b>\n\n"
-        "👥 Group: Select Group\n"
-        "📢 Channel: Select Channel\n\n"
-        "<b>ℹ️ Bot আগে থেকে যুক্ত না থাকলেও Chat নির্বাচন করতে পারবে।</b>\n"
-        "<i>তবে বিস্তারিত তথ্য Telegram-এর অনুমতির ওপর নির্ভর করবে।</i>",
+        header(title)
+        + "<b>যে Chat-এর তথ্য দেখতে চাও সেটি Select করো।</b>\n\n"
+        "🔎 Chat নির্বাচন করলেই Analyzer শুরু হবে।\n\n"
+        "✅ Public Chat-এর তথ্য Bot যুক্ত না থাকলেও "
+        "যতটুকু পাওয়া সম্ভব দেখানো হবে।\n\n"
+        "⚠️ Private Chat-এর বিস্তারিত তথ্যের জন্য "
+        "Bot-এর Access প্রয়োজন হতে পারে।"
+        + footer(),
         parse_mode="HTML",
         reply_markup=keyboard
     )
 
 
 # ==================================================
-# CHAT INFORMATION
+# GET CHAT INFORMATION
 # ==================================================
 
-def get_chat_details(shared, mode):
+def get_chat_details(shared):
     chat_id = shared.get("chat_id")
     username = shared.get("username")
 
-    # First try using selected chat ID.
-    result = api("getChat", {"chat_id": chat_id})
+    result = {"ok": False}
 
-    # Public chats may also be accessible through username.
-    if not result.get("ok") and username:
-        result = api("getChat", {"chat_id": "@" + username})
+    # Public username lookup
+    if username:
+        result = api("getChat", {
+            "chat_id": "@" + username.lstrip("@")
+        })
 
-    chat = result.get("result", {}) if result.get("ok") else {}
+    # Try selected numeric ID if needed
+    if not result.get("ok") and chat_id:
+        result = api("getChat", {
+            "chat_id": chat_id
+        })
 
-    # Shared selection data is still useful if getChat fails.
-    title = chat.get("title") or shared.get("title")
-    actual_username = chat.get("username") or username
-    description = chat.get("description")
-
-    actual_id = chat.get("id") or chat_id
-    chat_type = chat.get("type") or (
-        "channel" if mode == "channel" else "group/supergroup"
-    )
+    chat = result.get("result", {})
 
     return {
-        "id": actual_id,
-        "title": title,
-        "username": actual_username,
-        "description": description,
-        "type": chat_type,
+        "id": chat.get("id") or chat_id,
+        "title": chat.get("title") or shared.get("title"),
+        "username": chat.get("username") or username,
+        "type": chat.get("type") or (
+            "channel" if shared.get("request_id") == 2002
+            else "supergroup"
+        ),
+        "description": chat.get("description"),
         "invite_link": chat.get("invite_link"),
         "photo": chat.get("photo"),
         "shared_photo": shared.get("photo", []),
-        "get_chat_ok": result.get("ok", False)
+        "accessible": result.get("ok", False)
     }
 
+
+# ==================================================
+# CHAT PROFILE PHOTO
+# ==================================================
 
 def send_chat_photo(chat_id, chat):
     photo = chat.get("photo") or {}
 
-    photo_id = photo.get("big_file_id") or photo.get("small_file_id")
+    photo_id = (
+        photo.get("big_file_id")
+        or photo.get("small_file_id")
+    )
 
     if not photo_id:
         shared_photos = chat.get("shared_photo", [])
@@ -369,41 +426,51 @@ def send_chat_photo(chat_id, chat):
         result = api("sendPhoto", {
             "chat_id": chat_id,
             "photo": photo_id,
-            "caption": "🖼️ <b>GROUP / CHANNEL PROFILE PHOTO</b>",
+            "caption": "🖼️ <b>CHAT PROFILE PHOTO</b>",
             "parse_mode": "HTML"
         })
 
         if not result.get("ok"):
-            logger.warning("Photo sending failed: %s", result)
-    else:
-        send(chat_id, "🖼️ এই Chat-এর Profile Picture পাওয়া যায়নি।")
+            logger.warning("Photo error: %s", result)
 
+    else:
+        send(chat_id, "🖼️ Profile Picture পাওয়া যায়নি।")
+
+
+# ==================================================
+# GROUP / CHANNEL ANALYZER
+# ==================================================
 
 def chat_analyzer(chat_id, shared, mode):
-    chat = get_chat_details(shared, mode)
+    chat = get_chat_details(shared)
 
-    actual_id = chat["id"]
-    username = chat["username"]
+    target = chat.get("id")
+    username = chat.get("username")
+
+    lookup = (
+        "@" + username.lstrip("@")
+        if username else target
+    )
 
     if username:
-        full_link = f"https://t.me/{username}"
+        full_link = "https://t.me/" + username.lstrip("@")
     else:
-        full_link = chat.get("invite_link") or "Public link unavailable"
+        full_link = chat.get("invite_link") or "Not available"
 
     # Member count
     count_result = api("getChatMemberCount", {
-        "chat_id": actual_id
+        "chat_id": lookup
     })
 
     member_count = (
         count_result.get("result")
         if count_result.get("ok")
-        else "Unavailable (Bot access required)"
+        else "Unavailable"
     )
 
-    # Admin list
+    # Administrator list
     admin_result = api("getChatAdministrators", {
-        "chat_id": actual_id
+        "chat_id": lookup
     })
 
     admins = (
@@ -412,66 +479,73 @@ def chat_analyzer(chat_id, shared, mode):
         else []
     )
 
-    admin_available = admin_result.get("ok", False)
-
-    human_admins = []
-    bot_admins = []
-    creator = None
+    humans = []
+    bots = []
+    owner = None
 
     for item in admins:
         user = item.get("user", {})
 
-        admin = {
-            "id": user.get("id"),
+        entry = {
             "name": " ".join(filter(None, [
                 user.get("first_name", ""),
                 user.get("last_name", "")
             ])) or "Unknown",
             "username": user.get("username"),
+            "id": user.get("id"),
             "is_bot": user.get("is_bot", False),
-            "status": item.get("status", "administrator"),
-            "custom_title": item.get("custom_title")
+            "role": item.get("status", "administrator")
         }
 
-        if admin["status"] == "creator":
-            creator = admin
+        if entry["role"] == "creator":
+            owner = entry
 
-        if admin["is_bot"]:
-            bot_admins.append(admin)
+        if entry["is_bot"]:
+            bots.append(entry)
         else:
-            human_admins.append(admin)
+            humans.append(entry)
 
-    # Main report
-    report = header("📊 ADVANCED CHAT REPORT V5")
+    # Build report
+    report = header("✨ PREMIUM CHAT ANALYZER")
 
     report += (
         "<b>━━━ BASIC INFORMATION ━━━</b>\n"
-        + line("Name", chat["title"])
-        + line("Username", "@" + username if username else "Not set")
+        + line("Name", chat.get("title"))
+        + line(
+            "Username",
+            "@" + username if username else "Not available"
+        )
+        + line("Chat ID", target)
+        + line("Chat Type", chat.get("type"))
         + line("Full Link", full_link)
-        + line("Chat ID", actual_id)
-        + line("Chat Type", chat["type"])
         + line("Total Members", member_count)
-        + line("Description", chat["description"])
-        + line("Bot Access", "Available" if chat["get_chat_ok"] else "Limited")
-        + f"\n<b>🕒 Bangladesh Time:</b> {now()}\n\n"
+        + line("Description", chat.get("description"))
+        + line(
+            "Bot Chat Access",
+            "Available" if chat["accessible"] else "Limited"
+        )
     )
 
-    report += "<b>━━━ ADMIN STATISTICS ━━━</b>\n"
+    # Admin information
+    report += "\n<b>━━━ ADMIN STATISTICS ━━━</b>\n"
 
-    if admin_available:
+    if admin_result.get("ok"):
         report += (
             line("Total Admins", len(admins))
-            + line("Human Admins", len(human_admins))
-            + line("Bot Admins", len(bot_admins))
+            + line("Human Admins", len(humans))
+            + line("Bot Admins", len(bots))
         )
 
-        if creator:
+        if owner:
             report += (
-                "\n<b>👑 CREATOR</b>\n"
-                + line("Name", creator["name"])
-                + line("Username", "@" + creator["username"] if creator["username"] else "Not set")
-                + line("User ID", creator["id"])
+                "\n<b>👑 CHAT OWNER</b>\n"
+                + line("Name", owner["name"])
+                + line(
+                    "Username",
+                    "@" + owner["username"]
+                    if owner["username"] else "Not available"
+                )
+                + line("User ID", owner["id"])
             )
 
         report += "\n<b>━━━ ADMIN LIST ━━━</b>\n"
@@ -479,26 +553,33 @@ def chat_analyzer(chat_id, shared, mode):
         for index, admin in enumerate(admins[:15], 1):
             report += (
                 f"\n<b>{index}. {safe(admin['name'])}</b>\n"
-                + line("ID", admin["id"])
-                + line("Username", "@" + admin["username"] if admin["username"] else "Not set")
-                + line("Role", admin["status"])
+                + line(
+                    "Username",
+                    "@" + admin["username"]
+                    if admin["username"] else "Not available"
+                )
+                + line("User ID", admin["id"])
+                + line("Role", admin["role"])
                 + line("Bot Account", "Yes" if admin["is_bot"] else "No")
             )
 
-            if admin["custom_title"]:
-                report += line("Custom Title", admin["custom_title"])
-
         if len(admins) > 15:
-            report += f"\n<i>আরও {len(admins) - 15} জন Admin আছে।</i>\n"
+            report += (
+                f"\n<i>আরও {len(admins) - 15} জন Admin রয়েছে।</i>\n"
+            )
 
         report += "\n<b>━━━ BOT ADMIN LIST ━━━</b>\n"
 
-        if bot_admins:
-            for index, bot in enumerate(bot_admins, 1):
+        if bots:
+            for index, bot in enumerate(bots, 1):
                 report += (
                     f"\n<b>🤖 BOT {index}</b>\n"
                     + line("Name", bot["name"])
-                    + line("Username", "@" + bot["username"] if bot["username"] else "Not set")
+                    + line(
+                        "Username",
+                        "@" + bot["username"]
+                        if bot["username"] else "Not available"
+                    )
                     + line("Bot ID", bot["id"])
                 )
         else:
@@ -507,22 +588,33 @@ def chat_analyzer(chat_id, shared, mode):
     else:
         report += (
             "⚠️ Admin List পাওয়া যায়নি।\n"
-            "Bot-কে Chat-এ যুক্ত করে প্রয়োজনীয় অনুমতি দিলে "
-            "আরও বিস্তারিত তথ্য পাওয়া যেতে পারে।\n"
-        )
-        report += (
-            "\n<i>Bot সদস্য না হলে Telegram Admin List "
-            "দিতে নাও পারে।</i>\n"
+            "Telegram API এই Chat-এর Admin তথ্য দেয়নি।\n"
         )
 
-    report += (
-        "\n━━━━━━━━━━━━━━━━━━━━\n"
-        "<b>⚡ TEAM SHADOW STRIKER</b>"
-    )
+    report += footer()
 
-    send(chat_id, report, parse_mode="HTML")
+    # Send report
+    if len(report) <= 4000:
+        send(
+            chat_id,
+            report,
+            parse_mode="HTML"
+        )
+    else:
+        # Split long report without losing HTML validity
+        sections = [
+            report[i:i + 3500]
+            for i in range(0, len(report), 3500)
+        ]
 
-    # Send photo separately
+        for section in sections:
+            send(
+                chat_id,
+                section,
+                parse_mode="HTML"
+            )
+
+    # Send profile photo
     send_chat_photo(chat_id, chat)
 
 
@@ -537,20 +629,19 @@ def bot_information(chat_id):
         send(chat_id, "❌ Bot Information পাওয়া যায়নি।")
         return
 
-    bot = result["result"]
+    bot = result.get("result", {})
 
-    text = (
+    report = (
         header("🤖 BOT INFORMATION")
         + line("Name", bot.get("first_name"))
         + line("Username", "@" + bot.get("username", ""))
         + line("Bot ID", bot.get("id"))
         + line("Can Join Groups", bot.get("can_join_groups"))
         + line("Inline Mode", bot.get("supports_inline_queries"))
-        + f"\n<b>🕒 Time:</b> {now()}\n\n"
-        "<b>⚡ TEAM SHADOW STRIKER</b>"
+        + footer()
     )
 
-    send(chat_id, text, parse_mode="HTML")
+    send(chat_id, report, parse_mode="HTML")
 
 
 # ==================================================
@@ -559,46 +650,54 @@ def bot_information(chat_id):
 
 def server_status(chat_id):
     start = time.monotonic()
+
     result = api("getMe")
-    elapsed = round((time.monotonic() - start) * 1000, 2)
+
+    elapsed = round(
+        (time.monotonic() - start) * 1000,
+        2
+    )
 
     status = "🟢 ONLINE" if result.get("ok") else "🔴 API ERROR"
 
-    text = (
+    report = (
         header("📊 SERVER STATUS")
         + line("Bot Status", status)
-        + line("Telegram API", "Connected" if result.get("ok") else "Disconnected")
+        + line(
+            "Telegram API",
+            "Connected" if result.get("ok") else "Disconnected"
+        )
         + line("API Response", f"{elapsed} ms")
         + line("Timezone", "Asia/Dhaka")
-        + f"\n<b>🕒 Bangladesh Time:</b> {now()}\n\n"
-        "<b>⚡ TEAM SHADOW STRIKER</b>"
+        + footer()
     )
 
-    send(chat_id, text, parse_mode="HTML")
+    send(chat_id, report, parse_mode="HTML")
 
 
 # ==================================================
-# HELP
+# HELP MENU
 # ==================================================
 
 def help_menu(chat_id):
-    send(
-        chat_id,
+    report = (
         header("📖 HELP CENTER")
         + "<b>👤 USER INFORMATION</b>\n"
         "Telegram User Picker দিয়ে User নির্বাচন করো।\n\n"
         "<b>👥 GROUP INFORMATION</b>\n"
-        "Group নির্বাচন করে তথ্য দেখো।\n\n"
+        "Group Select করে Analyzer ব্যবহার করো।\n\n"
         "<b>📢 CHANNEL INFORMATION</b>\n"
-        "Channel নির্বাচন করে তথ্য দেখো।\n\n"
+        "Channel Select করে তথ্য দেখো।\n\n"
         "<b>🤖 BOT INFORMATION</b>\n"
         "নিজের Bot-এর তথ্য দেখো।\n\n"
         "<b>📊 SERVER STATUS</b>\n"
-        "Bot API Status ও Response Time।\n\n"
-        "<i>Telegram API-এর সীমাবদ্ধতার কারণে "
-        "সব তথ্য সবসময় পাওয়া সম্ভব নয়।</i>",
-        parse_mode="HTML"
+        "Bot ও API Status দেখো।\n\n"
+        "<i>সাধারণ সদস্যদের পূর্ণ তালিকা Telegram Bot API দেয় না। "
+        "Story ও ব্যক্তিগত তথ্যও পাওয়া যায় না।</i>"
+        + footer()
     )
+
+    send(chat_id, report, parse_mode="HTML")
 
 
 # ==================================================
@@ -615,6 +714,7 @@ def handle_message(message):
     user_id = user.get("id")
     text = (message.get("text") or "").strip()
 
+    # START
     if text.startswith("/start"):
         if not is_member(user_id):
             join_page(chat_id)
@@ -622,46 +722,56 @@ def handle_message(message):
 
         send(
             chat_id,
-            f"<b>{safe('স্বাগতম')} {safe(user.get('first_name', 'বন্ধু'))}!</b>\n\n"
-            "<b>⚡ TEAM SHADOW STRIKER V5</b>\n"
+            f"<b>{greeting()}, {safe(user.get('first_name', 'বন্ধু'))}!</b>\n\n"
+            "<b>⚡ TEAM SHADOW STRIKER V6</b>\n"
             "Premium TG Information System",
             parse_mode="HTML"
         )
+
         main_menu(chat_id)
         return
 
-    # Require channel verification
+    # Verification
     if not is_member(user_id):
         join_page(chat_id)
         return
 
-    # User selection
+    # User selected
     if message.get("users_shared"):
-        user_information(chat_id, message["users_shared"])
+        user_information(
+            chat_id,
+            message["users_shared"]
+        )
         return
 
-    # Group / Channel selection
+    # Group / Channel selected
     if message.get("chat_shared"):
         shared = message["chat_shared"]
         request_id = shared.get("request_id")
 
-        mode = "channel" if request_id == 2002 else "group"
+        if request_id == 2002:
+            mode = "channel"
+        elif request_id == 2001:
+            mode = "group"
+        else:
+            send(chat_id, "❌ Unknown Chat Selection.")
+            return
 
         chat_analyzer(chat_id, shared, mode)
         return
 
+    # Menu
     if text in ("/menu", "⬅️ MAIN MENU"):
         main_menu(chat_id)
 
-    elif text == "/help" or text == "📖 HELP":
+    elif text in ("/help", "📖 HELP MENU"):
         help_menu(chat_id)
 
     elif text == "👤 USER INFORMATION":
         send(
             chat_id,
             "<b>👤 USER SELECTOR</b>\n\n"
-            "Menu-এর USER INFORMATION বাটনে আবার চাপ দিয়ে "
-            "একজন User নির্বাচন করো।",
+            "USER INFORMATION বাটনে চাপ দিয়ে একজন User নির্বাচন করো।",
             parse_mode="HTML"
         )
 
@@ -680,28 +790,46 @@ def handle_message(message):
     elif text.startswith("/chat"):
         parts = text.split(maxsplit=1)
 
-        if len(parts) == 2:
-            # Username lookup fallback
-            username = parts[1].strip()
-            if not username.startswith("@"):
-                username = "@" + username
+        if len(parts) != 2:
+            send(
+                chat_id,
+                "ব্যবহার: /chat @username"
+            )
+            return
 
-            result = api("getChat", {"chat_id": username})
+        username = parts[1].strip().lstrip("@")
 
-            if result.get("ok"):
-                found = result["result"]
-                shared = {
-                    "chat_id": found.get("id"),
-                    "title": found.get("title"),
-                    "username": found.get("username"),
-                    "photo": []
-                }
-                mode = "channel" if found.get("type") == "channel" else "group"
-                chat_analyzer(chat_id, shared, mode)
-            else:
-                send(chat_id, "❌ Chat পাওয়া যায়নি।")
-        else:
-            send(chat_id, "ব্যবহার: /chat @username")
+        result = api("getChat", {
+            "chat_id": "@" + username
+        })
+
+        if not result.get("ok"):
+            send(
+                chat_id,
+                "❌ Public Chat পাওয়া যায়নি।\n"
+                "Username সঠিক কিনা পরীক্ষা করো।"
+            )
+            return
+
+        found = result["result"]
+
+        shared = {
+            "chat_id": found.get("id"),
+            "title": found.get("title"),
+            "username": found.get("username"),
+            "photo": [],
+            "request_id": (
+                2002 if found.get("type") == "channel"
+                else 2001
+            )
+        }
+
+        mode = (
+            "channel" if found.get("type") == "channel"
+            else "group"
+        )
+
+        chat_analyzer(chat_id, shared, mode)
 
     else:
         send(
@@ -718,11 +846,17 @@ def handle_message(message):
 def handle_callback(callback):
     callback_id = callback.get("id")
     data = callback.get("data")
-    chat_id = callback.get("message", {}).get("chat", {}).get("id")
+
+    chat_id = callback.get(
+        "message", {}
+    ).get("chat", {}).get("id")
+
     user_id = callback.get("from", {}).get("id")
 
     if data == "verify" and chat_id:
+
         if is_member(user_id):
+
             api("answerCallbackQuery", {
                 "callback_query_id": callback_id,
                 "text": "Verification Successful!"
@@ -730,16 +864,20 @@ def handle_callback(callback):
 
             send(
                 chat_id,
-                "<b>✅ VERIFICATION SUCCESSFUL</b>\n"
-                "Welcome to TEAM SHADOW STRIKER!",
+                "<b>✅ VERIFICATION SUCCESSFUL!</b>\n\n"
+                "Welcome to TEAM SHADOW STRIKER.",
                 parse_mode="HTML"
             )
+
             main_menu(chat_id)
+
         else:
+
             api("answerCallbackQuery", {
                 "callback_query_id": callback_id,
                 "text": "আগে Channel-এ Join করো!"
             })
+
             join_page(chat_id)
 
 
@@ -751,7 +889,7 @@ def handle_callback(callback):
 def home():
     return jsonify({
         "bot": "TEAM SHADOW STRIKER",
-        "version": "5.0",
+        "version": "6.0",
         "status": "Running",
         "timezone": "Asia/Dhaka"
     })
@@ -774,7 +912,7 @@ def webhook():
             handle_callback(update["callback_query"])
 
     except Exception:
-        logger.exception("Webhook processing error")
+        logger.exception("Webhook processing failed")
 
     return "OK", 200
 
@@ -793,6 +931,7 @@ if render_url:
             "callback_query"
         ]
     })
+
     logger.info("Webhook setup: %s", result)
 
 
@@ -804,4 +943,4 @@ if __name__ == "__main__":
     app.run(
         host="0.0.0.0",
         port=int(os.environ.get("PORT", 5000))
-    )
+)
